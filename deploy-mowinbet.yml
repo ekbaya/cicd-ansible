@@ -1,0 +1,130 @@
+- name: Deploy Superapp Application
+  hosts: superapp
+  become: yes
+  become_user: root
+  vars:
+    app_dir: /work/superapp
+    service_name: superapp
+    deployment_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+    backup_dir: "{{ app_dir }}_backup_{{ deployment_timestamp }}"
+    health_check_url: "http://localhost:8000"
+    max_health_retries: 3
+    health_retry_delay: 10
+
+  tasks:
+    - name: Check if app directory exists
+      stat:
+        path: "{{ app_dir }}"
+      register: app_dir_stat
+
+    - name: Create backup directory
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+      when: app_dir_stat.stat.exists
+
+    - name: Backup current application
+      copy:
+        src: "{{ app_dir }}/"
+        dest: "{{ backup_dir }}"
+        remote_src: yes
+      when: app_dir_stat.stat.exists
+
+    - name: Ensure work directory exists
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Update code from git
+      git:
+        repo: "{{ git_repo }}"
+        dest: "{{ app_dir }}"
+        update: yes
+        force: yes
+      register: git_status
+
+    - name: Ensure proper permissions on app directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        recurse: yes
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Build Go application
+      shell: |
+        cd {{ app_dir }}
+        PATH=$PATH:/usr/local/go/bin go build -buildvcs=false -o superapp .
+      become: yes
+      become_user: ubuntu
+      register: build_result
+      
+    - name: Set permissions on binary
+      file:
+        path: "{{ app_dir }}/superapp"
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Restart superapp service
+      service:
+        name: "{{ service_name }}"
+        state: restarted
+      register: service_restart
+
+    - name: Wait for service to start
+      wait_for:
+        timeout: 10
+
+    - name: Check service health
+      uri:
+        url: "{{ health_check_url }}"
+        method: GET
+        status_code: 200
+      register: health_check
+      retries: "{{ max_health_retries }}"
+      delay: "{{ health_retry_delay }}"
+      until: health_check.status == 200
+      ignore_errors: yes
+
+    - name: Rollback if deployment failed
+      block:
+        - name: Stop service
+          service:
+            name: "{{ service_name }}"
+            state: stopped
+
+        - name: Restore from backup
+          copy:
+            src: "{{ backup_dir }}/"
+            dest: "{{ app_dir }}"
+            remote_src: yes
+          when: app_dir_stat.stat.exists
+
+        - name: Restart service after rollback
+          service:
+            name: "{{ service_name }}"
+            state: restarted
+
+        - name: Send rollback notification
+          debug:
+            msg: "Deployment failed and rollback was performed on {{ inventory_hostname }}"
+
+      when: health_check.status is not defined or health_check.status != 200
+
+    - name: Clean up old backup if deployment successful
+      file:
+        path: "{{ backup_dir }}"
+        state: absent
+      when: health_check.status is defined and health_check.status == 200 and app_dir_stat.stat.exists
+
+    - name: Final deployment status
+      debug:
+        msg: "Deployment {% if health_check.status == 200 %}succeeded{% else %}failed{% endif %} on {{ inventory_hostname }}"

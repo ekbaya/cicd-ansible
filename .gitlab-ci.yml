@@ -1,0 +1,36 @@
+stages:
+  - build
+  - deploy
+
+build:
+  stage: build
+  image: golang:latest
+  variables:
+    CGO_ENABLED: "0"
+    GOOS: linux  
+    GOARCH: amd64
+  before_script:
+    - go mod verify
+  script:
+    - go mod download
+    - go test ./...
+    - go build -v -ldflags="-w -s" -o app
+  cache:
+    paths:
+      - .go/cache
+  artifacts:
+    paths:
+      - app
+    expire_in: 1 week
+
+deploy-to-prod:
+  stage: deploy
+  only:
+    - prod
+  script:
+    - mkdir -p ~/.ssh
+    - echo "$PEM_FILE" | base64 -d > ~/.ssh/superapp.pem
+    - chmod 600 ~/.ssh/superapp.pem
+    - ls -la ~/.ssh/superapp.pem
+    - cat ~/.ssh/superapp.pem | head -n 1
+    - ssh -i ~/.ssh/superapp.pem -o StrictHostKeyChecking=no ubuntu@ec2-xx-xx-xxx-xx.af-south-1.compute.amazonaws.com "cd /home/ubuntu && ansible-playbook -i inventory deploy-superapp.yml"

@@ -1,0 +1,10 @@
+[superapp]
+host1 ansible_host=xx.x.xxx.xxx ansible_ssh_private_key_file=/home/ubuntu/superapp.pem
+host2 ansible_host=xx.x.xxx.xxx ansible_ssh_private_key_file=/home/ubuntu/superapp.pem
+host3 ansible_host=xx.x.xxx.xxx ansible_ssh_private_key_file=/home/ubuntu/superapp.pem
+
+
+[all:vars]
+git_repo="https://username:your-gitlab-token@gitlab.com/username/superapp.git"
+ansible_user=ubuntu
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
