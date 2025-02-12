@@ -5,6 +5,7 @@ host3 ansible_host=xx.x.xxx.xxx ansible_ssh_private_key_file=/home/ubuntu/supera
 
 
 [all:vars]
-git_repo="https://username:your-gitlab-token@gitlab.com/username/superapp.git"
 ansible_user=ubuntu
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+gitlab_username: your_username
+gitlab_password: your_password  # Better to use ansible-vault for this

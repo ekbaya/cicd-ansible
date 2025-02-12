@@ -1,10 +1,10 @@
-- name: Deploy Superapp Application
-  hosts: superapp
+- name: Deploy Supperapp Application
+  hosts: supperapp
   become: yes
   become_user: root
   vars:
-    app_dir: /work/superapp
-    service_name: superapp
+    app_dir: /home/ubuntu/work/supperapp
+    service_name: supperapp
     deployment_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
     backup_dir: "{{ app_dir }}_backup_{{ deployment_timestamp }}"
     health_check_url: "http://localhost:8000"
@@ -41,13 +41,57 @@
         owner: ubuntu
         group: ubuntu
 
+    - name: Configure Git credential storage
+      git_config:
+        name: credential.helper
+        value: store
+        scope: global
+      become: yes
+      become_user: ubuntu
+
+    - name: Store Git credentials
+      copy:
+        content: "https://{{ gitlab_username }}:{{ gitlab_password }}@gitlab.com"
+        dest: "/home/ubuntu/.git-credentials"
+        mode: '0600'
+        owner: ubuntu
+        group: ubuntu
+      become: yes
+      become_user: ubuntu
+
+
+    - name: Clean git directory
+      shell: |
+        cd {{ app_dir }}
+        git reset --hard
+        git clean -fd
+        git checkout prod
+      become: yes
+      become_user: ubuntu
+      when: app_dir_stat.stat.exists
+
     - name: Update code from git
       git:
-        repo: "{{ git_repo }}"
+        repo: "https://{{ gitlab_username }}:{{ gitlab_password }}@gitlab.com/bytecity/supperapp-client-api.git"
         dest: "{{ app_dir }}"
         update: yes
         force: yes
+        version: "prod"
+        accept_hostkey: yes
+        recursive: yes
+        clone: yes
+        depth: 1
+      become: yes
+      become_user: ubuntu
       register: git_status
+
+    - name: Verify git status
+      shell: |
+        cd {{ app_dir }}
+        git status
+      register: git_verification
+      become: yes
+      become_user: ubuntu
 
     - name: Ensure proper permissions on app directory
       file:
@@ -61,19 +105,19 @@
     - name: Build Go application
       shell: |
         cd {{ app_dir }}
-        PATH=$PATH:/usr/local/go/bin go build -buildvcs=false -o superapp .
+        PATH=$PATH:/usr/local/go/bin go build -buildvcs=false -o supperapp .
       become: yes
       become_user: ubuntu
       register: build_result
-      
+
     - name: Set permissions on binary
       file:
-        path: "{{ app_dir }}/superapp"
+        path: "{{ app_dir }}/supperapp"
         mode: '0755'
         owner: ubuntu
         group: ubuntu
 
-    - name: Restart superapp service
+    - name: Restart supperapp service
       service:
         name: "{{ service_name }}"
         state: restarted
